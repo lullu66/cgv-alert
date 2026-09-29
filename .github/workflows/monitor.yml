@@ -1,0 +1,59 @@
+name: CGV Telegram Alert
+on:
+  schedule:
+    - cron: '2-59/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      send_test:
+        description: '텔레그램 연결 테스트 메시지 보내기'
+        type: boolean
+        default: true
+      reset_block:
+        description: 'CGV 접속 제한이 해소된 것을 확인한 뒤 감시 재개'
+        type: boolean
+        default: false
+defaults:
+  run:
+    working-directory: CGV-알리미-무료서버
+permissions:
+  contents: read
+concurrency:
+  group: cgv-monitor
+  cancel-in-progress: false
+jobs:
+  monitor:
+    # Free-only guard: never start a runner in a private repository.
+    if: github.event.repository.private == false && (vars.ALERT_ENABLED == 'true' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Restore notification state
+        uses: actions/cache/restore@v4
+        with:
+          path: CGV-알리미-무료서버/.state
+          key: cgv-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: cgv-state-
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: npx playwright install --with-deps chromium --only-shell
+      - name: Check CGV and notify
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MOVIE_KEYWORD: ${{ vars.MOVIE_KEYWORD }}
+          MIN_SEATS: ${{ vars.MIN_SEATS }}
+          START_DATE: ${{ vars.START_DATE }}
+          END_DATE: ${{ vars.END_DATE }}
+          SEND_TEST: ${{ inputs.send_test }}
+          RESET_BLOCK: ${{ inputs.reset_block }}
+        run: npm start
+      - name: Save notification state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: CGV-알리미-무료서버/.state
+          key: cgv-state-${{ github.run_id }}-${{ github.run_attempt }}
